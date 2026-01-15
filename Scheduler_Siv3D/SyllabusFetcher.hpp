@@ -46,9 +46,9 @@ struct SyllabusData
 	Array<ClassSession> sessions;
 
 	CourseType type = CourseType::Required;
-	bool isSelected = false;
+	bool isSelected = false; // True if registered in My Schedule
 
-	// Full Dataset: Stores EVERY field returned by the server
+	// Full Dataset
 	HashTable<String, String> details;
 };
 
@@ -60,6 +60,10 @@ public:
 	SyllabusData getResult();
 
 	static Array<ClassSession> ParseSchedule(const String& scheduleRaw, const String& roomRaw);
+
+	// Local Storage
+	static void SaveSchedule(const Array<SyllabusData>& courses);
+	static Array<SyllabusData> LoadSchedule();
 
 private:
 	std::future<SyllabusData> m_future;

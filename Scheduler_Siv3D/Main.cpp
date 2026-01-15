@@ -28,14 +28,15 @@ void Main()
 	}
 
 	// 1. Setup Window
-	Window::Resize(900, 600);
-	Window::SetTitle(U"Sophia Scheduler - Cloud Edition");
+	Window::Resize(1280, 720);
+	Window::SetTitle(U"Sophia Scheduler - Phase 2");
 	Scene::SetBackground(Palette::White);
 
 	// 2. Register Fonts
-	FontAsset::Register(U"Medium", 30);
-	FontAsset::Register(U"Small", 16);
-	FontAsset::Register(U"Detail", 14);
+	FontAsset::Register(U"Header", 24, Typeface::Bold);
+	FontAsset::Register(U"Title", 20, Typeface::Bold);
+	FontAsset::Register(U"Normal", 16);
+	FontAsset::Register(U"Small", 14);
 
 	// 3. Application State
 	SyllabusFetcher fetcher;
@@ -43,81 +44,139 @@ void Main()
 	codeInput.text = U"EMG54700";
 
 	bool isFetching = false;
-	String statusMessage = U"Enter a course code and click Fetch.";
-	Array<SyllabusData> myCourses;
+	String statusMessage = U"Ready to search.";
+
+	// --- Data Storage ---
+		// mySchedule: The list of courses currently registered and saved.
+		// searchResult: The temporary course found by the search bar.
+	Array<SyllabusData> mySchedule = SyllabusFetcher::LoadSchedule();
+	Optional<SyllabusData> searchResult = none;
 
 	while (System::Update())
 	{
-		// --- INPUT UI ---
-		SimpleGUI::TextBox(codeInput, Vec2{ 20, 20 }, 150);
+		// -------------------------------------------------------------
+		// LEFT PANEL: My Schedule (Width: 800)
+		// -------------------------------------------------------------
+		Rect{ 0, 0, 800, 720 }.draw(Palette::White);
+		Rect{ 0, 0, 800, 60 }.draw(ColorF{ 0.2, 0.4, 0.8 }); // Header
+		FontAsset(U"Header")(U"My Registered Courses").draw(20, 15, Palette::White);
 
-		if (SimpleGUI::Button(U"Fetch", Vec2{ 180, 20 }) && !isFetching)
+		// List Header
+		FontAsset(U"Small")(U"{} courses registered"_fmt(mySchedule.size())).draw(650, 22, Palette::White);
+
+		// Render List
 		{
-			if (!appConfig.valid)
+			int y = 80;
+			for (auto& course : mySchedule)
 			{
-				statusMessage = U"Error: Invalid Configuration (Check config.ini)";
-			}
-			else if (codeInput.text.isEmpty())
-			{
-				statusMessage = U"Please enter a valid code.";
-			}
-			else
-			{
-				fetcher.startFetch(codeInput.text, U"2025", appConfig);
-				isFetching = true;
-				statusMessage = U"Querying Cloud Server...";
+				// Card Background
+				Rect card{ 20, y, 760, 90 };
+				bool hover = card.mouseOver();
+
+				// [FIXED] Changed Palette::Rdpo (Typo) to Palette::Red
+				Color typeColor = (course.type == CourseType::Required) ? Palette::Red : Palette::Skyblue;
+
+				card.draw(hover ? Palette::Azure : Palette::White).drawFrame(1, Palette::Lightgray);
+				Rect{ 20, y, 10, 90 }.draw(typeColor); // Left Strip
+
+				// Info
+				FontAsset(U"Title")(course.title).draw(40, y + 10, Palette::Black);
+				FontAsset(U"Normal")(U"{} | {}"_fmt(course.instructor, course.schedule)).draw(40, y + 40, Palette::Gray);
+				FontAsset(U"Small")(course.code).draw(40, y + 65, Palette::Lightgray);
+
+				// --- ACTIONS ---
+
+				// Toggle Type (Req/Elec)
+				if (SimpleGUI::Button(course.type == CourseType::Required ? U"Required" : U"Elective", Vec2{ 600, (double)y + 10 }, 100))
+				{
+					// Switch Type
+					course.type = (course.type == CourseType::Required) ? CourseType::Elective : CourseType::Required;
+					SyllabusFetcher::SaveSchedule(mySchedule); // Auto-save
+				}
+
+				// Delete Button
+				if (SimpleGUI::Button(U"Remove", Vec2{ 600, (double)y + 50 }, 100))
+				{
+					// Remove by ID matching (safest way)
+					mySchedule.remove_if([&](const SyllabusData& c) { return c.code == course.code; });
+					SyllabusFetcher::SaveSchedule(mySchedule); // Auto-save
+					break; // Stop loop to avoid iterator invalidation
+				}
+
+				y += 100;
 			}
 		}
 
-		// --- ASYNC HANDLING ---
+
+		// -------------------------------------------------------------
+		// RIGHT PANEL: Search & Add (Width: 480)
+		// -------------------------------------------------------------
+		Rect{ 800, 0, 480, 720 }.draw(Palette::Whitesmoke);
+
+		// Search Header
+		FontAsset(U"Header")(U"Add New Course").draw(820, 20, Palette::Black);
+
+		// Input Area
+		SimpleGUI::TextBox(codeInput, Vec2{ 820, 70 }, 200);
+
+		if (SimpleGUI::Button(U"Search", Vec2{ 1030, 70 }, 100) && !isFetching)
+		{
+			if (appConfig.valid && !codeInput.text.isEmpty()) {
+				fetcher.startFetch(codeInput.text, U"2025", appConfig);
+				isFetching = true;
+				searchResult = none; // Clear old result
+				statusMessage = U"Searching...";
+			}
+		}
+
+		// Search Status
 		if (isFetching)
 		{
-			// Spinner
-			Circle{ 400, 300, 30 }.drawArc(Scene::Time() * 180_deg, 270_deg, 4, 4, Palette::Skyblue);
+			Circle{ 1040, 150, 20 }.drawArc(Scene::Time() * 180_deg, 270_deg, 4, 4, Palette::Skyblue);
 
 			if (fetcher.hasResult())
 			{
-				SyllabusData data = fetcher.getResult();
 				isFetching = false;
-
-				if (data.isValid)
-				{
-					myCourses << data;
-					statusMessage = U"Success! Added " + data.title;
+				SyllabusData res = fetcher.getResult();
+				if (res.isValid) {
+					searchResult = res;
+					statusMessage = U"Found!";
 				}
-				else
-				{
-					statusMessage = U"Error: Course not found or API error.";
+				else {
+					statusMessage = U"Course not found.";
 				}
 			}
 		}
 
-		// --- RENDER LIST ---
-		FontAsset(U"Medium")(statusMessage).draw(20, 60, Palette::Black);
+		FontAsset(U"Normal")(statusMessage).draw(820, 110, Palette::Gray);
 
-		int y = 100;
-		for (const auto& course : myCourses)
+		// Search Result Card
+		if (searchResult)
 		{
-			Rect cardRect{ 20, y, 860, 80 };
-			bool isHovered = cardRect.mouseOver();
+			int ry = 160;
+			Rect resCard{ 820, ry, 440, 200 };
+			resCard.draw(Palette::White).drawFrame(2, Palette::Orange);
 
-			// Draw Card
-			cardRect.draw(isHovered ? Palette::Azure : Palette::White).drawFrame(1, Palette::Lightgray);
+			FontAsset(U"Title")(searchResult->title).draw(830, ry + 10, Palette::Black);
+			FontAsset(U"Normal")(searchResult->instructor).draw(830, ry + 40, Palette::Black);
+			FontAsset(U"Small")(searchResult->schedule).draw(830, ry + 70, Palette::Black);
 
-			// Title
-			FontAsset(U"Medium")(course.title).draw(30, y + 5, Palette::Black);
-
-			// Sub Info (Using correct member names)
-			String subInfo = U"{} | {} | {}"_fmt(course.instructor, course.schedule, course.classroom);
-			FontAsset(U"Small")(subInfo).draw(30, y + 45, Palette::Gray);
-
-			// Tooltip on Hover (Show count of extra details)
-			if (isHovered)
+			// "ADD TO SCHEDULE" Button
+			if (SimpleGUI::Button(U"Add to My Schedule", Vec2{ 830, (double)ry + 140 }, 200))
 			{
-				SimpleGUI::Headline(U"Extra Details: {}"_fmt(course.details.size()), Vec2{ 750, (double)y + 25 });
-			}
+				// Check for duplicates
+				bool exists = mySchedule.includes_if([&](const SyllabusData& c) { return c.code == searchResult->code; });
 
-			y += 90;
+				if (!exists) {
+					mySchedule << searchResult.value();
+					SyllabusFetcher::SaveSchedule(mySchedule); // Save immediately
+					statusMessage = U"Added to schedule!";
+					searchResult = none; // Clear result after adding
+				}
+				else {
+					statusMessage = U"Already in schedule.";
+				}
+			}
 		}
 	}
 }

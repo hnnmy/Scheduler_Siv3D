@@ -117,9 +117,82 @@ Array<ClassSession> SyllabusFetcher::ParseSchedule(const String& scheduleRaw, co
 	return sessions;
 }
 
+// ---------------------------------------------------------
+// Persistence Logic
+// ---------------------------------------------------------
+
+void SyllabusFetcher::SaveSchedule(const Array<SyllabusData>& courses)
+{
+	JSON json;
+
+	for (const auto& course : courses)
+	{
+		JSON item;
+		item[U"code"] = course.code;
+		item[U"title"] = course.title;
+		item[U"instructor"] = course.instructor;
+		item[U"semester"] = course.semester;
+		item[U"schedule"] = course.schedule;
+		item[U"classroom"] = course.classroom;
+
+		// Save user settings
+		item[U"type"] = (int)course.type;
+
+		// Save all details
+		for (auto [key, val] : course.details)
+		{
+			item[U"details"][key] = val;
+		}
+
+		json.push_back(item);
+	}
+
+	json.save(U"my_schedule.json");
+}
+
+Array<SyllabusData> SyllabusFetcher::LoadSchedule()
+{
+	Array<SyllabusData> courses;
+	const JSON json = JSON::Load(U"my_schedule.json");
+
+	if (!json) return courses;
+
+	for (const auto& item : json.arrayView())
+	{
+		SyllabusData c;
+		c.isValid = true;
+		c.isSelected = true; // Loaded means it is selected
+
+		c.code = item[U"code"].getString();
+		c.title = item[U"title"].getString();
+		c.instructor = item[U"instructor"].getString();
+		c.semester = item[U"semester"].getString();
+		c.schedule = item[U"schedule"].getString();
+		c.classroom = item[U"classroom"].getString();
+
+		// Load user settings
+		c.type = (CourseType)item[U"type"].getOr<int>(0);
+
+		// Re-parse schedule from raw strings
+		c.sessions = ParseSchedule(c.schedule, c.classroom);
+
+		// Load details
+		if (item.hasElement(U"details"))
+		{
+			for (const auto& detail : item[U"details"])
+			{
+				c.details[detail.key] = detail.value.getString();
+			}
+		}
+
+		courses << c;
+	}
+
+	return courses;
+}
 
 // ---------------------------------------------------------
-// Class Implementation
+// Fetcher Implementation
 // ---------------------------------------------------------
 
 void SyllabusFetcher::startFetch(const String& code, const String& year, const AppConfig& config)
